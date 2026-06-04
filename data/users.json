@@ -1,0 +1,182 @@
+[
+  {
+    "id": "mpwpc56tk6ob",
+    "name": "Test User",
+    "email": "test@deloitte.com",
+    "registeredAt": "2026-06-02T13:57:23.141Z",
+    "progress": {
+      "1": {
+        "topicsRead": [
+          "1A1"
+        ],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "2": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "3": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "4": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "5": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      }
+    }
+  },
+  {
+    "id": "mpxrtr5hd90z",
+    "name": "anand",
+    "email": "anakushwaha@deloitte.com",
+    "registeredAt": "2026-06-03T07:54:50.165Z",
+    "progress": {
+      "1": {
+        "topicsRead": [
+          "1A1",
+          "1A2",
+          "1A3",
+          "1A4"
+        ],
+        "quizAttempts": [
+          {
+            "attemptNumber": 1,
+            "score": 87,
+            "correct": 13,
+            "total": 15,
+            "timestamp": "2026-06-03T08:03:44.777Z"
+          }
+        ],
+        "bestScore": 87
+      },
+      "2": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "3": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "4": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "5": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      }
+    }
+  },
+  {
+    "id": "4688c1dda328b3fadb48bef7103e7e97",
+    "name": "Test",
+    "email": "newtest@deloitte.com",
+    "registeredAt": "2026-06-03T13:37:01.389Z",
+    "progress": {
+      "1": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "2": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "3": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "4": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "5": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      }
+    }
+  },
+  {
+    "id": "3a6d0c9c5a5a2e68b4239c771c0fd6dd",
+    "name": "Security Test",
+    "email": "sectest3@deloitte.com",
+    "registeredAt": "2026-06-03T13:37:31.006Z",
+    "progress": {
+      "1": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "2": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "3": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "4": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "5": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      }
+    }
+  },
+  {
+    "id": "96a09c30d17b63fc61059a4526c2e409",
+    "name": "&lt;script&gt;alert(1)&lt;/script&gt;",
+    "email": "xss@test.com",
+    "registeredAt": "2026-06-03T13:38:12.080Z",
+    "progress": {
+      "1": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "2": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "3": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "4": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      },
+      "5": {
+        "topicsRead": [],
+        "quizAttempts": [],
+        "bestScore": null
+      }
+    }
+  }
+]
