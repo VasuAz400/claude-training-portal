@@ -252,9 +252,13 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+
+  // Respond identically and in constant time regardless of admin status
+  res.json({ message: 'If this email is authorized, an OTP has been sent.' });
+
   if (!ADMIN_EMAILS.includes(normalizedEmail)) {
     auditLog('OTP_REQUEST_DENIED', { email: normalizedEmail, ip: req.ip });
-    return res.json({ message: 'If this email is authorized, an OTP has been sent.' });
+    return;
   }
 
   const code = generateOTP();
@@ -267,33 +271,30 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
   auditLog('OTP_GENERATED', { email: normalizedEmail, ip: req.ip });
 
   if (smtpTransporter) {
-    // OTP delivered via email — never log credentials to stdout in production
-    try {
-      await smtpTransporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: normalizedEmail,
-        subject: 'Claude Training Hub — Admin Login OTP',
-        text: `Your one-time password is: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this email.`,
-        html: `
-          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;">
-            <div style="background:#000;color:#fff;padding:16px 24px;border-radius:6px 6px 0 0;">
-              <h2 style="margin:0;font-size:18px;">
-                <span style="color:#86BC25;font-weight:800;">D</span> Claude Training Hub
-              </h2>
-            </div>
-            <div style="background:#f2f2f2;padding:32px 24px;border-radius:0 0 6px 6px;">
-              <p style="color:#555;margin:0 0 16px;">Your one-time password for admin access:</p>
-              <div style="background:#fff;border:2px solid #86BC25;border-radius:6px;text-align:center;padding:20px;">
-                <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#1a1a1a;">${code}</span>
-              </div>
-              <p style="color:#888;font-size:13px;margin:16px 0 0;">This code expires in 5 minutes.</p>
-            </div>
+    smtpTransporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: normalizedEmail,
+      subject: 'Claude Training Hub — Admin Login OTP',
+      text: `Your one-time password is: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this email.`,
+      html: `
+        <div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;">
+          <div style="background:#000;color:#fff;padding:16px 24px;border-radius:6px 6px 0 0;">
+            <h2 style="margin:0;font-size:18px;">
+              <span style="color:#86BC25;font-weight:800;">D</span> Claude Training Hub
+            </h2>
           </div>
-        `
-      });
-    } catch (err) {
+          <div style="background:#f2f2f2;padding:32px 24px;border-radius:0 0 6px 6px;">
+            <p style="color:#555;margin:0 0 16px;">Your one-time password for admin access:</p>
+            <div style="background:#fff;border:2px solid #86BC25;border-radius:6px;text-align:center;padding:20px;">
+              <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#1a1a1a;">${code}</span>
+            </div>
+            <p style="color:#888;font-size:13px;margin:16px 0 0;">This code expires in 5 minutes.</p>
+          </div>
+        </div>
+      `
+    }).catch(err => {
       console.error('Failed to send OTP email:', err.message);
-    }
+    });
   } else {
     console.log('');
     console.log('='.repeat(50));
@@ -303,8 +304,6 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
     console.log('='.repeat(50));
     console.log('');
   }
-
-  res.json({ message: 'If this email is authorized, an OTP has been sent.' });
 });
 
 app.post('/api/admin/verify-otp', otpVerifyLimiter, (req, res) => {
