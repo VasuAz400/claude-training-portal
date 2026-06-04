@@ -58,6 +58,7 @@ const ADMIN_SESSION_TTL = 4 * 60 * 60 * 1000; // 4 hours
 const otpStore = new Map();       // email -> { code, expiresAt, attempts }
 const adminSessions = new Map();  // token -> { email, expiresAt }
 const userSessions = new Map();   // token -> { userId, expiresAt }
+const userOtpStore = new Map();   // email -> { code, expiresAt, attempts, name }
 const USER_SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── SECURITY: Cleanup expired OTPs and sessions every 10 minutes ──
@@ -71,6 +72,9 @@ setInterval(() => {
   }
   for (const [key, val] of userSessions) {
     if (now > val.expiresAt) userSessions.delete(key);
+  }
+  for (const [key, val] of userOtpStore) {
+    if (now > val.expiresAt) userOtpStore.delete(key);
   }
 }, 10 * 60 * 1000);
 
@@ -221,6 +225,14 @@ const registrationLimiter = rateLimit({
   message: { error: 'Too many registration attempts. Please wait.' }
 });
 
+const userOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many verification attempts. Please wait.' }
+});
+
 // ═══════════════════════════════════════════
 //  Admin Auth Routes
 // ═══════════════════════════════════════════
@@ -363,7 +375,7 @@ app.post('/api/admin/logout', (req, res) => {
 //  Learner Routes (with input validation)
 // ═══════════════════════════════════════════
 
-app.post('/api/register', registrationLimiter, (req, res) => {
+app.post('/api/register', registrationLimiter, async (req, res) => {
   const { name, email } = req.body;
 
   // ── SECURITY: Validate inputs ──
@@ -374,38 +386,126 @@ app.post('/api/register', registrationLimiter, (req, res) => {
     return res.status(400).json({ error: 'A valid email is required.' });
   }
 
-  const users = readJSON(USERS_FILE);
   const normalizedEmail = email.trim().toLowerCase();
 
-  // ── SECURITY: Cap total registrations to prevent storage abuse ──
-  if (users.length >= 50) {
-    return res.status(503).json({ error: 'Registration limit reached. Contact your trainer.' });
-  }
+  // ── SECURITY: Generate OTP — never return user data without email verification ──
+  const code = generateOTP();
+  userOtpStore.set(normalizedEmail, {
+    code,
+    expiresAt: Date.now() + OTP_EXPIRY_MS,
+    attempts: 0,
+    name: sanitizeHTML(name.trim())
+  });
 
-  let user = users.find(u => u.email === normalizedEmail);
-  if (user) {
-    const token = generateToken();
-    userSessions.set(token, { userId: user.id, expiresAt: Date.now() + USER_SESSION_TTL });
-    return res.json({ ...user, sessionToken: token });
-  }
+  auditLog('USER_OTP_GENERATED', { email: normalizedEmail, ip: req.ip });
 
-  user = {
-    id: generateUserId(),
-    name: sanitizeHTML(name.trim()),
-    email: normalizedEmail,
-    registeredAt: new Date().toISOString(),
-    progress: {
-      1: { topicsRead: [], quizAttempts: [], bestScore: null },
-      2: { topicsRead: [], quizAttempts: [], bestScore: null },
-      3: { topicsRead: [], quizAttempts: [], bestScore: null },
-      4: { topicsRead: [], quizAttempts: [], bestScore: null },
-      5: { topicsRead: [], quizAttempts: [], bestScore: null }
+  console.log('');
+  console.log('='.repeat(50));
+  console.log(`  LEARNER OTP for ${normalizedEmail}`);
+  console.log(`  Code: ${code}`);
+  console.log(`  Expires in 5 minutes`);
+  console.log('='.repeat(50));
+  console.log('');
+
+  if (smtpTransporter) {
+    try {
+      await smtpTransporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: normalizedEmail,
+        subject: 'Claude Training Hub — Verification Code',
+        text: `Your verification code is: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this email.`,
+        html: `
+          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;">
+            <div style="background:#000;color:#fff;padding:16px 24px;border-radius:6px 6px 0 0;">
+              <h2 style="margin:0;font-size:18px;">
+                <span style="color:#86BC25;font-weight:800;">D</span> Claude Training Hub
+              </h2>
+            </div>
+            <div style="background:#f2f2f2;padding:32px 24px;border-radius:0 0 6px 6px;">
+              <p style="color:#555;margin:0 0 16px;">Your verification code:</p>
+              <div style="background:#fff;border:2px solid #86BC25;border-radius:6px;text-align:center;padding:20px;">
+                <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#1a1a1a;">${code}</span>
+              </div>
+              <p style="color:#888;font-size:13px;margin:16px 0 0;">This code expires in 5 minutes.</p>
+            </div>
+          </div>
+        `
+      });
+    } catch (err) {
+      console.error('Failed to send OTP email:', err.message);
     }
-  };
+  }
 
-  users.push(user);
-  writeJSON(USERS_FILE, users);
-  auditLog('USER_REGISTERED', { email: normalizedEmail });
+  res.json({ requiresOTP: true, message: 'A verification code has been sent to your email.' });
+});
+
+// ── SECURITY: Verify learner OTP before granting access ──
+app.post('/api/user/verify-otp', userOtpVerifyLimiter, (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp || !isValidEmail(email)) {
+    return res.status(400).json({ error: 'Email and verification code are required.' });
+  }
+  if (typeof otp !== 'string' || !/^\d{6}$/.test(otp.trim())) {
+    return res.status(400).json({ error: 'Code must be a 6-digit number.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const stored = userOtpStore.get(normalizedEmail);
+
+  if (!stored) {
+    auditLog('USER_OTP_VERIFY_NO_CODE', { email: normalizedEmail, ip: req.ip });
+    return res.status(401).json({ error: 'No verification code found. Please register again.' });
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    userOtpStore.delete(normalizedEmail);
+    auditLog('USER_OTP_EXPIRED', { email: normalizedEmail, ip: req.ip });
+    return res.status(401).json({ error: 'Code has expired. Please register again.' });
+  }
+
+  if (stored.attempts >= OTP_MAX_ATTEMPTS) {
+    userOtpStore.delete(normalizedEmail);
+    auditLog('USER_OTP_LOCKED_OUT', { email: normalizedEmail, ip: req.ip, attempts: stored.attempts });
+    return res.status(429).json({ error: 'Too many failed attempts. Please register again.' });
+  }
+
+  if (!safeCompare(stored.code, otp.trim())) {
+    stored.attempts++;
+    auditLog('USER_OTP_VERIFY_FAILED', { email: normalizedEmail, ip: req.ip, attempt: stored.attempts });
+    const remaining = OTP_MAX_ATTEMPTS - stored.attempts;
+    return res.status(401).json({
+      error: `Invalid code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`
+    });
+  }
+
+  userOtpStore.delete(normalizedEmail);
+
+  const users = readJSON(USERS_FILE);
+  let user = users.find(u => u.email === normalizedEmail);
+
+  if (!user) {
+    if (users.length >= 50) {
+      return res.status(503).json({ error: 'Registration limit reached. Contact your trainer.' });
+    }
+    user = {
+      id: generateUserId(),
+      name: stored.name,
+      email: normalizedEmail,
+      registeredAt: new Date().toISOString(),
+      progress: {
+        1: { topicsRead: [], quizAttempts: [], bestScore: null },
+        2: { topicsRead: [], quizAttempts: [], bestScore: null },
+        3: { topicsRead: [], quizAttempts: [], bestScore: null },
+        4: { topicsRead: [], quizAttempts: [], bestScore: null },
+        5: { topicsRead: [], quizAttempts: [], bestScore: null }
+      }
+    };
+    users.push(user);
+    writeJSON(USERS_FILE, users);
+    auditLog('USER_REGISTERED', { email: normalizedEmail, ip: req.ip });
+  } else {
+    auditLog('USER_LOGIN', { email: normalizedEmail, ip: req.ip });
+  }
 
   const token = generateToken();
   userSessions.set(token, { userId: user.id, expiresAt: Date.now() + USER_SESSION_TTL });

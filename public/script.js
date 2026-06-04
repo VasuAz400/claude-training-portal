@@ -119,24 +119,99 @@ const app = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email })
       });
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem('cth_userId', data.id);
-        localStorage.setItem('cth_sessionToken', data.sessionToken);
-        delete data.sessionToken;
-        this.user = data;
-        document.getElementById('headerNav').style.display = 'flex';
-        document.getElementById('userBadge').textContent = this.user.name;
-        this.renderDashboard();
-      } else {
-        const err = await res.json();
-        document.getElementById('regError').textContent = err.error;
+      const data = await res.json();
+      if (res.ok && data.requiresOTP) {
+        this.pendingEmail = email.trim().toLowerCase();
+        this.pendingName = name;
+        this.renderUserOTPInput();
+      } else if (!res.ok) {
+        document.getElementById('regError').textContent = data.error;
         document.getElementById('regError').style.display = 'block';
       }
     } catch {
       document.getElementById('regError').textContent = 'Connection error. Please try again.';
       document.getElementById('regError').style.display = 'block';
     }
+  },
+
+  renderUserOTPInput() {
+    document.getElementById('app').innerHTML = `
+      <div class="register-container">
+        <div class="card">
+          <h2>Verify Your Email</h2>
+          <p class="subtitle">Enter the 6-digit code sent to <strong>${esc(this.pendingEmail)}</strong></p>
+          <form id="userOtpForm" onsubmit="app.verifyUserOTP(event)">
+            <div class="form-group">
+              <label for="userOtpInput">Verification Code</label>
+              <input type="text" id="userOtpInput" placeholder="Enter 6-digit code" maxlength="6" pattern="[0-9]{6}" required
+                style="text-align:center;font-size:24px;letter-spacing:8px;font-weight:700;">
+              <div class="form-error" id="userOtpError"></div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block btn-lg" id="userOtpSubmitBtn">Verify</button>
+          </form>
+          <div style="text-align:center;margin-top:16px;">
+            <button class="btn btn-sm" style="background:none;color:var(--gray-500);text-decoration:underline;border:none;" onclick="app.resendUserOTP()">Resend Code</button>
+            <span style="color:var(--gray-300);margin:0 8px;">|</span>
+            <button class="btn btn-sm" style="background:none;color:var(--gray-500);text-decoration:underline;border:none;" onclick="app.renderRegister()">Change email</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('userOtpInput').focus();
+  },
+
+  async verifyUserOTP(e) {
+    e.preventDefault();
+    const otp = document.getElementById('userOtpInput').value.trim();
+    if (!otp) return;
+
+    const btn = document.getElementById('userOtpSubmitBtn');
+    const errEl = document.getElementById('userOtpError');
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+    errEl.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/user/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: this.pendingEmail, otp })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error;
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+        return;
+      }
+      localStorage.setItem('cth_userId', data.id);
+      localStorage.setItem('cth_sessionToken', data.sessionToken);
+      delete data.sessionToken;
+      this.user = data;
+      document.getElementById('headerNav').style.display = 'flex';
+      document.getElementById('userBadge').textContent = this.user.name;
+      this.renderDashboard();
+    } catch {
+      errEl.textContent = 'Connection error. Please try again.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Verify';
+    }
+  },
+
+  async resendUserOTP() {
+    try {
+      await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: this.pendingName, email: this.pendingEmail })
+      });
+      const errEl = document.getElementById('userOtpError');
+      errEl.textContent = 'New code sent. Check your email or server console.';
+      errEl.style.display = 'block';
+      errEl.style.color = 'var(--green-dark)';
+    } catch { /* silent */ }
   },
 
   logout() {
