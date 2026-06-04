@@ -258,17 +258,8 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
 
   auditLog('OTP_GENERATED', { email: normalizedEmail, ip: req.ip });
 
-  // Print to console
-  console.log('');
-  console.log('='.repeat(50));
-  console.log(`  ADMIN OTP for ${normalizedEmail}`);
-  console.log(`  Code: ${code}`);
-  console.log(`  Expires in 5 minutes`);
-  console.log('='.repeat(50));
-  console.log('');
-
-  // Send via email if SMTP is configured
   if (smtpTransporter) {
+    // OTP delivered via email — never log credentials to stdout in production
     try {
       await smtpTransporter.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -295,6 +286,14 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
     } catch (err) {
       console.error('Failed to send OTP email:', err.message);
     }
+  } else {
+    console.log('');
+    console.log('='.repeat(50));
+    console.log(`  ADMIN OTP for ${normalizedEmail}`);
+    console.log(`  Code: ${code}`);
+    console.log(`  Expires in 5 minutes`);
+    console.log('='.repeat(50));
+    console.log('');
   }
 
   res.json({ message: 'If this email is authorized, an OTP has been sent.' });
@@ -399,15 +398,8 @@ app.post('/api/register', registrationLimiter, async (req, res) => {
 
   auditLog('USER_OTP_GENERATED', { email: normalizedEmail, ip: req.ip });
 
-  console.log('');
-  console.log('='.repeat(50));
-  console.log(`  LEARNER OTP for ${normalizedEmail}`);
-  console.log(`  Code: ${code}`);
-  console.log(`  Expires in 5 minutes`);
-  console.log('='.repeat(50));
-  console.log('');
-
   if (smtpTransporter) {
+    // OTP delivered via email — never log credentials to stdout in production
     try {
       await smtpTransporter.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -434,6 +426,14 @@ app.post('/api/register', registrationLimiter, async (req, res) => {
     } catch (err) {
       console.error('Failed to send OTP email:', err.message);
     }
+  } else {
+    console.log('');
+    console.log('='.repeat(50));
+    console.log(`  LEARNER OTP for ${normalizedEmail}`);
+    console.log(`  Code: ${code}`);
+    console.log(`  Expires in 5 minutes`);
+    console.log('='.repeat(50));
+    console.log('');
   }
 
   res.json({ requiresOTP: true, message: 'A verification code has been sent to your email.' });
