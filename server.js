@@ -59,6 +59,9 @@ const otpStore = new Map();       // email -> { code, expiresAt, attempts }
 const adminSessions = new Map();  // token -> { email, expiresAt }
 const userSessions = new Map();   // token -> { userId, expiresAt }
 const userOtpStore = new Map();   // email -> { code, expiresAt, attempts, name }
+const accountVerifyAttempts = new Map(); // email -> { attempts, windowStart, lockedUntil }
+const ACCOUNT_MAX_VERIFY_ATTEMPTS = 10;
+const ACCOUNT_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 const USER_SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── SECURITY: Cleanup expired OTPs and sessions every 10 minutes ──
@@ -75,6 +78,11 @@ setInterval(() => {
   }
   for (const [key, val] of userOtpStore) {
     if (now > val.expiresAt) userOtpStore.delete(key);
+  }
+  for (const [key, val] of accountVerifyAttempts) {
+    if (val.lockedUntil && now > val.lockedUntil && now - val.windowStart > ACCOUNT_LOCKOUT_MS) {
+      accountVerifyAttempts.delete(key);
+    }
   }
 }, 10 * 60 * 1000);
 
@@ -387,6 +395,13 @@ app.post('/api/register', registrationLimiter, async (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
 
+  // ── SECURITY: Enforce per-account lockout that survives OTP regeneration ──
+  const acctAttempts = accountVerifyAttempts.get(normalizedEmail);
+  if (acctAttempts && acctAttempts.lockedUntil && Date.now() < acctAttempts.lockedUntil) {
+    auditLog('USER_REGISTER_ACCOUNT_LOCKED', { email: normalizedEmail, ip: req.ip });
+    return res.status(429).json({ error: 'This account is temporarily locked due to too many failed verification attempts. Please try again later.' });
+  }
+
   // ── SECURITY: Generate OTP — never return user data without email verification ──
   const code = generateOTP();
   userOtpStore.set(normalizedEmail, {
@@ -463,6 +478,19 @@ app.post('/api/user/verify-otp', userOtpVerifyLimiter, (req, res) => {
     return res.status(401).json({ error: 'Code has expired. Please register again.' });
   }
 
+  // ── SECURITY: Per-account attempt tracking (survives OTP regeneration) ──
+  const now = Date.now();
+  let acctAttempts = accountVerifyAttempts.get(normalizedEmail);
+  if (!acctAttempts || now - acctAttempts.windowStart > ACCOUNT_LOCKOUT_MS) {
+    acctAttempts = { attempts: 0, windowStart: now, lockedUntil: null };
+    accountVerifyAttempts.set(normalizedEmail, acctAttempts);
+  }
+
+  if (acctAttempts.lockedUntil && now < acctAttempts.lockedUntil) {
+    auditLog('USER_OTP_ACCOUNT_LOCKED', { email: normalizedEmail, ip: req.ip, attempts: acctAttempts.attempts });
+    return res.status(429).json({ error: 'This account is temporarily locked due to too many failed attempts. Please try again later.' });
+  }
+
   if (stored.attempts >= OTP_MAX_ATTEMPTS) {
     userOtpStore.delete(normalizedEmail);
     auditLog('USER_OTP_LOCKED_OUT', { email: normalizedEmail, ip: req.ip, attempts: stored.attempts });
@@ -471,14 +499,22 @@ app.post('/api/user/verify-otp', userOtpVerifyLimiter, (req, res) => {
 
   if (!safeCompare(stored.code, otp.trim())) {
     stored.attempts++;
-    auditLog('USER_OTP_VERIFY_FAILED', { email: normalizedEmail, ip: req.ip, attempt: stored.attempts });
-    const remaining = OTP_MAX_ATTEMPTS - stored.attempts;
+    acctAttempts.attempts++;
+    if (acctAttempts.attempts >= ACCOUNT_MAX_VERIFY_ATTEMPTS) {
+      acctAttempts.lockedUntil = now + ACCOUNT_LOCKOUT_MS;
+      userOtpStore.delete(normalizedEmail);
+      auditLog('USER_OTP_ACCOUNT_LOCKOUT_TRIGGERED', { email: normalizedEmail, ip: req.ip, attempts: acctAttempts.attempts });
+      return res.status(429).json({ error: 'This account is temporarily locked due to too many failed attempts. Please try again later.' });
+    }
+    auditLog('USER_OTP_VERIFY_FAILED', { email: normalizedEmail, ip: req.ip, attempt: stored.attempts, acctAttempt: acctAttempts.attempts });
+    const remaining = Math.min(OTP_MAX_ATTEMPTS - stored.attempts, ACCOUNT_MAX_VERIFY_ATTEMPTS - acctAttempts.attempts);
     return res.status(401).json({
       error: `Invalid code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`
     });
   }
 
   userOtpStore.delete(normalizedEmail);
+  accountVerifyAttempts.delete(normalizedEmail);
 
   const users = readJSON(USERS_FILE);
   let user = users.find(u => u.email === normalizedEmail);
