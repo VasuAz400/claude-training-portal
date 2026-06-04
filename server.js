@@ -57,6 +57,8 @@ const ADMIN_SESSION_TTL = 4 * 60 * 60 * 1000; // 4 hours
 // In-memory stores
 const otpStore = new Map();       // email -> { code, expiresAt, attempts }
 const adminSessions = new Map();  // token -> { email, expiresAt }
+const userSessions = new Map();   // token -> { userId, expiresAt }
+const USER_SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── SECURITY: Cleanup expired OTPs and sessions every 10 minutes ──
 setInterval(() => {
@@ -66,6 +68,9 @@ setInterval(() => {
   }
   for (const [key, val] of adminSessions) {
     if (now > val.expiresAt) adminSessions.delete(key);
+  }
+  for (const [key, val] of userSessions) {
+    if (now > val.expiresAt) userSessions.delete(key);
   }
 }, 10 * 60 * 1000);
 
@@ -164,6 +169,30 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ error: 'Session expired. Please log in again.' });
   }
   req.adminEmail = matchedSession.email;
+  next();
+}
+
+// ── SECURITY: Learner session middleware ──
+function requireUser(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  const token = authHeader.slice(7);
+
+  let matchedSession = null;
+  for (const [storedToken, session] of userSessions) {
+    if (safeCompare(token, storedToken)) {
+      matchedSession = { token: storedToken, ...session };
+      break;
+    }
+  }
+
+  if (!matchedSession || Date.now() > matchedSession.expiresAt) {
+    if (matchedSession) userSessions.delete(matchedSession.token);
+    return res.status(401).json({ error: 'Session expired. Please register again.' });
+  }
+  req.userId = matchedSession.userId;
   next();
 }
 
@@ -355,7 +384,9 @@ app.post('/api/register', registrationLimiter, (req, res) => {
 
   let user = users.find(u => u.email === normalizedEmail);
   if (user) {
-    return res.json(user);
+    const token = generateToken();
+    userSessions.set(token, { userId: user.id, expiresAt: Date.now() + USER_SESSION_TTL });
+    return res.json({ ...user, sessionToken: token });
   }
 
   user = {
@@ -375,14 +406,22 @@ app.post('/api/register', registrationLimiter, (req, res) => {
   users.push(user);
   writeJSON(USERS_FILE, users);
   auditLog('USER_REGISTERED', { email: normalizedEmail });
-  res.json(user);
+
+  const token = generateToken();
+  userSessions.set(token, { userId: user.id, expiresAt: Date.now() + USER_SESSION_TTL });
+  res.json({ ...user, sessionToken: token });
 });
 
-app.get('/api/user/:id', (req, res) => {
+app.get('/api/user/:id', requireUser, (req, res) => {
   // ── SECURITY: Validate ID format ──
   const id = req.params.id;
   if (typeof id !== 'string' || !/^[a-f0-9]{8,32}$/.test(id)) {
     return res.status(400).json({ error: 'Invalid user ID format.' });
+  }
+
+  // ── SECURITY: Ownership check — users can only access their own record ──
+  if (req.userId !== id) {
+    return res.status(403).json({ error: 'Access denied.' });
   }
 
   const users = readJSON(USERS_FILE);
@@ -391,13 +430,18 @@ app.get('/api/user/:id', (req, res) => {
   res.json(user);
 });
 
-app.post('/api/progress/:userId/topic', (req, res) => {
+app.post('/api/progress/:userId/topic', requireUser, (req, res) => {
   const { day, topicId } = req.body;
   const userId = req.params.userId;
 
   // ── SECURITY: Validate all inputs ──
   if (typeof userId !== 'string' || !/^[a-f0-9]{32}$/.test(userId)) {
     return res.status(400).json({ error: 'Invalid user ID.' });
+  }
+
+  // ── SECURITY: Ownership check ──
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Access denied.' });
   }
   if (!day || !Number.isInteger(day) || day < 1 || day > 5) {
     return res.status(400).json({ error: 'Day must be 1-5.' });
@@ -447,13 +491,18 @@ app.get('/api/quiz/:day', (req, res) => {
   res.json({ day, questions });
 });
 
-app.post('/api/quiz/:day/submit', (req, res) => {
+app.post('/api/quiz/:day/submit', requireUser, (req, res) => {
   const { userId, answers } = req.body;
   const day = parseInt(req.params.day);
 
   // ── SECURITY: Validate all inputs ──
   if (typeof userId !== 'string' || !/^[a-f0-9]{32}$/.test(userId)) {
     return res.status(400).json({ error: 'Invalid user ID.' });
+  }
+
+  // ── SECURITY: Ownership check ──
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Access denied.' });
   }
   if (!Number.isInteger(day) || day < 1 || day > 5) {
     return res.status(400).json({ error: 'Day must be 1-5.' });

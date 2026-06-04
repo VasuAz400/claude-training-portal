@@ -55,7 +55,15 @@ const app = {
 
   async loadUser(id) {
     try {
-      const res = await fetch(`/api/user/${id}`);
+      const token = localStorage.getItem('cth_sessionToken');
+      if (!token) {
+        localStorage.removeItem('cth_userId');
+        this.renderRegister();
+        return;
+      }
+      const res = await fetch(`/api/user/${id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (res.ok) {
         this.user = await res.json();
         document.getElementById('headerNav').style.display = 'flex';
@@ -67,6 +75,7 @@ const app = {
         }
       } else {
         localStorage.removeItem('cth_userId');
+        localStorage.removeItem('cth_sessionToken');
         this.renderRegister();
       }
     } catch {
@@ -111,8 +120,11 @@ const app = {
         body: JSON.stringify({ name, email })
       });
       if (res.ok) {
-        this.user = await res.json();
-        localStorage.setItem('cth_userId', this.user.id);
+        const data = await res.json();
+        localStorage.setItem('cth_userId', data.id);
+        localStorage.setItem('cth_sessionToken', data.sessionToken);
+        delete data.sessionToken;
+        this.user = data;
         document.getElementById('headerNav').style.display = 'flex';
         document.getElementById('userBadge').textContent = this.user.name;
         this.renderDashboard();
@@ -129,6 +141,7 @@ const app = {
 
   logout() {
     localStorage.removeItem('cth_userId');
+    localStorage.removeItem('cth_sessionToken');
     this.user = null;
     this.currentDay = null;
     document.getElementById('headerNav').style.display = 'none';
@@ -301,7 +314,10 @@ const app = {
     try {
       const res = await fetch(`/api/progress/${this.user.id}/topic`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cth_sessionToken')}`
+        },
         body: JSON.stringify({ day, topicId })
       });
       if (res.ok) {
@@ -462,7 +478,10 @@ const app = {
     try {
       const res = await fetch(`/api/quiz/${qs.day}/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cth_sessionToken')}`
+        },
         body: JSON.stringify({ userId: this.user.id, answers: qs.answers })
       });
       const data = await res.json();
