@@ -246,7 +246,7 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
   if (!ADMIN_EMAILS.includes(normalizedEmail)) {
     auditLog('OTP_REQUEST_DENIED', { email: normalizedEmail, ip: req.ip });
-    return res.status(403).json({ error: 'This email is not authorized for admin access.' });
+    return res.json({ message: 'If this email is authorized, an OTP has been sent.' });
   }
 
   const code = generateOTP();
@@ -297,7 +297,7 @@ app.post('/api/admin/request-otp', otpRequestLimiter, async (req, res) => {
     }
   }
 
-  res.json({ message: 'OTP sent. Check your email (or the server console).' });
+  res.json({ message: 'If this email is authorized, an OTP has been sent.' });
 });
 
 app.post('/api/admin/verify-otp', otpVerifyLimiter, (req, res) => {
